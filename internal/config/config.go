@@ -26,6 +26,18 @@ type Config struct {
 	Heartbeat time.Duration
 	// InsecureSkipVerify disables TLS verification toward the server (dev only).
 	InsecureSkipVerify bool
+
+	// mTLS material. When HubAddr + ClientCert + ClientKey are set the agent uses
+	// the mutual-TLS tunnel (production) instead of the token transport.
+	HubAddr    string
+	ClientCert string
+	ClientKey  string
+	CACert     string
+}
+
+// CertMode reports whether the agent has the material for the mutual-TLS tunnel.
+func (c Config) CertMode() bool {
+	return c.HubAddr != "" && c.ClientCert != "" && c.ClientKey != ""
 }
 
 // ErrMissingServer is returned when HIVEMIND_SERVER is not set.
@@ -40,8 +52,12 @@ func Load() (Config, error) {
 		DockerHost:         os.Getenv("DOCKER_HOST"),
 		Heartbeat:          15 * time.Second,
 		InsecureSkipVerify: parseBool(os.Getenv("HIVEMIND_INSECURE_SKIP_VERIFY")),
+		HubAddr:            os.Getenv("HIVEMIND_HUB_ADDR"),
+		ClientCert:         os.Getenv("HIVEMIND_CLIENT_CERT"),
+		ClientKey:          os.Getenv("HIVEMIND_CLIENT_KEY"),
+		CACert:             os.Getenv("HIVEMIND_CA_CERT"),
 	}
-	if cfg.ServerURL == "" {
+	if cfg.ServerURL == "" && !cfg.CertMode() {
 		return Config{}, ErrMissingServer
 	}
 	if v := os.Getenv("HIVEMIND_HEARTBEAT"); v != "" {

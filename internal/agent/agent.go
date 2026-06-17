@@ -22,6 +22,15 @@ const (
 // Run enrolls the agent and maintains heartbeats until ctx is cancelled.
 func Run(ctx context.Context, cfg config.Config, ident identity.NodeIdentity, srv transport.Server) error {
 	node := toNodeInfo(ident)
+
+	// mTLS mode: the client certificate is the credential — no token handshake.
+	if cfg.CertMode() {
+		slog.Info("agent starting (mTLS)",
+			"node_id", node.NodeID, "role", node.Role, "leader", node.IsLeader, "hub", cfg.HubAddr)
+		serveMTLSTunnel(ctx, cfg, ident)
+		return nil
+	}
+
 	slog.Info("agent starting",
 		"node_id", node.NodeID, "role", node.Role, "leader", node.IsLeader,
 		"swarm_id", node.SwarmID, "server", cfg.ServerURL)
@@ -75,14 +84,38 @@ func register(ctx context.Context, cfg config.Config, node transport.NodeInfo, s
 	}
 }
 
-// serveTunnel keeps the reverse tunnel up, reconnecting with capped backoff.
+// serveTunnel keeps the token-mode reverse tunnel up, reconnecting with backoff.
 func serveTunnel(ctx context.Context, cfg config.Config, agentID string) {
+	reconnect(ctx, func() error {
+		return tunnel.Serve(ctx, cfg.ServerURL, agentID, cfg.DockerHost, cfg.InsecureSkipVerify)
+	})
+}
+
+// serveMTLSTunnel keeps the mutual-TLS tunnel up, reconnecting with backoff.
+func serveMTLSTunnel(ctx context.Context, cfg config.Config, ident identity.NodeIdentity) {
+	node := tunnel.NodeQuery{
+		NodeID:        ident.NodeID,
+		Hostname:      ident.Hostname,
+		Role:          ident.Role,
+		IsManager:     ident.IsManager,
+		IsLeader:      ident.IsLeader,
+		EngineVersion: ident.EngineVersion,
+	}
+	reconnect(ctx, func() error {
+		return tunnel.ServeMTLS(ctx, cfg.HubAddr,
+			[]byte(cfg.ClientCert), []byte(cfg.ClientKey), []byte(cfg.CACert),
+			node, cfg.DockerHost, cfg.InsecureSkipVerify)
+	})
+}
+
+// reconnect runs fn, retrying with capped backoff until ctx is cancelled.
+func reconnect(ctx context.Context, fn func() error) {
 	backoff := minBackoff
 	for {
 		if ctx.Err() != nil {
 			return
 		}
-		err := tunnel.Serve(ctx, cfg.ServerURL, agentID, cfg.DockerHost, cfg.InsecureSkipVerify)
+		err := fn()
 		if ctx.Err() != nil {
 			return
 		}
