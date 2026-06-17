@@ -8,6 +8,20 @@ import (
 	"time"
 )
 
+// envOrFile returns the value of env, or the contents of the file named by
+// env+"_FILE" (the Docker-secrets convention) when that is set.
+func envOrFile(env string) string {
+	if v := os.Getenv(env); v != "" {
+		return v
+	}
+	if path := os.Getenv(env + "_FILE"); path != "" {
+		if b, err := os.ReadFile(path); err == nil {
+			return string(b)
+		}
+	}
+	return ""
+}
+
 // Config is the agent runtime configuration. It is intentionally small: the
 // agent dials out to the Hivemind server, so it only needs where to connect and
 // how to authenticate.
@@ -53,9 +67,9 @@ func Load() (Config, error) {
 		Heartbeat:          15 * time.Second,
 		InsecureSkipVerify: parseBool(os.Getenv("HIVEMIND_INSECURE_SKIP_VERIFY")),
 		HubAddr:            os.Getenv("HIVEMIND_HUB_ADDR"),
-		ClientCert:         os.Getenv("HIVEMIND_CLIENT_CERT"),
-		ClientKey:          os.Getenv("HIVEMIND_CLIENT_KEY"),
-		CACert:             os.Getenv("HIVEMIND_CA_CERT"),
+		ClientCert:         envOrFile("HIVEMIND_CLIENT_CERT"),
+		ClientKey:          envOrFile("HIVEMIND_CLIENT_KEY"),
+		CACert:             envOrFile("HIVEMIND_CA_CERT"),
 	}
 	if cfg.ServerURL == "" && !cfg.CertMode() {
 		return Config{}, ErrMissingServer
