@@ -2,7 +2,10 @@ module github.com/open226bf/hivemind-agent
 
 go 1.25.0
 
-require github.com/docker/docker v27.5.1+incompatible
+require (
+	github.com/docker/docker v27.5.1+incompatible
+	github.com/hashicorp/yamux v0.1.2
+)
 
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect

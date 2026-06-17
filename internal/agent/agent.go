@@ -11,6 +11,7 @@ import (
 	"github.com/open226bf/hivemind-agent/internal/config"
 	"github.com/open226bf/hivemind-agent/internal/identity"
 	"github.com/open226bf/hivemind-agent/internal/transport"
+	"github.com/open226bf/hivemind-agent/internal/tunnel"
 )
 
 const (
@@ -29,6 +30,9 @@ func Run(ctx context.Context, cfg config.Config, ident identity.NodeIdentity, sr
 	if err != nil {
 		return err // ctx cancelled during registration
 	}
+
+	// Reverse tunnel (data plane): reconnects with capped backoff until ctx ends.
+	go serveTunnel(ctx, cfg, agentID)
 
 	ticker := time.NewTicker(cfg.Heartbeat)
 	defer ticker.Stop()
@@ -63,6 +67,29 @@ func register(ctx context.Context, cfg config.Config, node transport.NodeInfo, s
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
+		case <-time.After(backoff):
+		}
+		if backoff *= 2; backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+}
+
+// serveTunnel keeps the reverse tunnel up, reconnecting with capped backoff.
+func serveTunnel(ctx context.Context, cfg config.Config, agentID string) {
+	backoff := minBackoff
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		err := tunnel.Serve(ctx, cfg.ServerURL, agentID, cfg.DockerHost, cfg.InsecureSkipVerify)
+		if ctx.Err() != nil {
+			return
+		}
+		slog.Warn("tunnel ended, reconnecting", "err", err, "in", backoff)
+		select {
+		case <-ctx.Done():
+			return
 		case <-time.After(backoff):
 		}
 		if backoff *= 2; backoff > maxBackoff {
