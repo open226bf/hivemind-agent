@@ -10,7 +10,7 @@ version: "3.8"
 
 services:
   agent:
-    image: hivemind/agent:latest
+    image: open226/hivemind-agent:latest
     deploy:
       mode: global # one task per node (managers carry orchestration, all nodes carry node-local data)
       restart_policy:
