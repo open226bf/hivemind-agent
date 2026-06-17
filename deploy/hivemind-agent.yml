@@ -1,9 +1,15 @@
 # Hivemind agent — global Swarm service (one task per node).
 #
 # Deploy on a target cluster's manager:
-#   HIVEMIND_SERVER=wss://hivemind.example.com:8443 \
-#   HIVEMIND_ENROLL_TOKEN=<one-time-token> \
+#   HIVEMIND_SERVER=http://hivemind.example.com:8081 \
+#   HIVEMIND_ENROLL_TOKEN=<reusable enrollment token> \
+#   HIVEMIND_AGENT_ID=<stable agent id from enrollment> \
 #   docker stack deploy -c hivemind-agent.yml hivemind-agent
+#
+# HIVEMIND_AGENT_ID is the stable identity issued at enrollment: the agent
+# reconnects with it across restarts and every node uses the same one, so the
+# (reusable) token is never re-consumed. The enroll command from the UI fills
+# all three variables for you.
 #
 # The agent dials OUT to HIVEMIND_SERVER, so the cluster needs no inbound exposure.
 version: "3.8"
@@ -19,6 +25,7 @@ services:
     environment:
       HIVEMIND_SERVER: "${HIVEMIND_SERVER}"
       HIVEMIND_ENROLL_TOKEN: "${HIVEMIND_ENROLL_TOKEN}"
+      HIVEMIND_AGENT_ID: "${HIVEMIND_AGENT_ID}"
       # HIVEMIND_HEARTBEAT: "15s"
       # HIVEMIND_INSECURE_SKIP_VERIFY: "false"
     volumes:
