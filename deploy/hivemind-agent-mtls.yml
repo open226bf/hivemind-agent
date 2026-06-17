@@ -1,0 +1,39 @@
+# Hivemind agent — mutual-TLS deployment (production).
+#
+# The agent authenticates the tunnel with a client certificate (no inbound
+# exposure on the cluster). Create the secrets from the enrollment output, then
+# deploy on a manager:
+#
+#   printf '%s' "$CLIENT_CERT" | docker secret create hivemind_client_cert -
+#   printf '%s' "$CLIENT_KEY"  | docker secret create hivemind_client_key  -
+#   printf '%s' "$CA_CERT"     | docker secret create hivemind_ca_cert     -
+#   HIVEMIND_HUB_ADDR=hivemind.example.com:8443 \
+#     docker stack deploy -c hivemind-agent-mtls.yml hivemind-agent
+version: "3.8"
+
+services:
+  agent:
+    image: hivemind/agent:latest
+    deploy:
+      mode: global # one task per node (managers carry orchestration, all nodes carry node-local data)
+      restart_policy:
+        condition: any
+    environment:
+      HIVEMIND_HUB_ADDR: "${HIVEMIND_HUB_ADDR}"
+      HIVEMIND_CLIENT_CERT_FILE: /run/secrets/hivemind_client_cert
+      HIVEMIND_CLIENT_KEY_FILE: /run/secrets/hivemind_client_key
+      HIVEMIND_CA_CERT_FILE: /run/secrets/hivemind_ca_cert
+    secrets:
+      - hivemind_client_cert
+      - hivemind_client_key
+      - hivemind_ca_cert
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+secrets:
+  hivemind_client_cert:
+    external: true
+  hivemind_client_key:
+    external: true
+  hivemind_ca_cert:
+    external: true
