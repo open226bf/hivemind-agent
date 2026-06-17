@@ -1,0 +1,26 @@
+# Hivemind agent — global Swarm service (one task per node).
+#
+# Deploy on a target cluster's manager:
+#   HIVEMIND_SERVER=wss://hivemind.example.com:8443 \
+#   HIVEMIND_ENROLL_TOKEN=<one-time-token> \
+#   docker stack deploy -c hivemind-agent.yml hivemind-agent
+#
+# The agent dials OUT to HIVEMIND_SERVER, so the cluster needs no inbound exposure.
+version: "3.8"
+
+services:
+  agent:
+    image: hivemind/agent:latest
+    deploy:
+      mode: global # one task per node (managers carry orchestration, all nodes carry node-local data)
+      restart_policy:
+        condition: any
+    environment:
+      HIVEMIND_SERVER: "${HIVEMIND_SERVER}"
+      HIVEMIND_ENROLL_TOKEN: "${HIVEMIND_ENROLL_TOKEN}"
+      # HIVEMIND_HEARTBEAT: "15s"
+      # HIVEMIND_INSECURE_SKIP_VERIFY: "false"
+    volumes:
+      # Read-only is enough for supervision/metrics; mount rw only if this agent
+      # must perform orchestration/exec from this node.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
