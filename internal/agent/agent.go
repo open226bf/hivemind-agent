@@ -85,9 +85,10 @@ func register(ctx context.Context, cfg config.Config, node transport.NodeInfo, s
 }
 
 // serveTunnel keeps the token-mode reverse tunnel up, reconnecting with backoff.
+// The enrollment token authenticates the tunnel (the agent id alone is public).
 func serveTunnel(ctx context.Context, cfg config.Config, agentID string) {
 	reconnect(ctx, func() error {
-		return tunnel.Serve(ctx, cfg.ServerURL, agentID, cfg.DockerHost, cfg.InsecureSkipVerify)
+		return tunnel.Serve(ctx, cfg.ServerURL, agentID, cfg.EnrollToken, cfg.DockerHost, cfg.InsecureSkipVerify)
 	})
 }
 

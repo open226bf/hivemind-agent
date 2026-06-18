@@ -25,6 +25,11 @@ import (
 
 const proto = "hivemind-tunnel"
 
+// tokenHeader carries the enrollment token that authenticates a token-mode
+// tunnel. It travels in a header (not the URL) so the secret stays out of the
+// server's access logs. Keep in sync with the server's handler package.
+const tokenHeader = "X-Hivemind-Enroll-Token"
+
 // NodeQuery is the node identity advertised on the connect URL.
 type NodeQuery struct {
 	NodeID        string
@@ -50,9 +55,11 @@ func (n NodeQuery) values() url.Values {
 	return v
 }
 
-// Serve opens a token-mode tunnel (agent id auth) and serves Docker proxy
-// streams until ctx is cancelled or the connection drops.
-func Serve(ctx context.Context, serverURL, agentID, dockerAddr string, insecure bool) error {
+// Serve opens a token-mode tunnel and serves Docker proxy streams until ctx is
+// cancelled or the connection drops. The tunnel is authenticated by the agent id
+// plus the enrollment token (sent in a header): the server pushes secret/config
+// payloads over it, so the agent id — which is public — is not enough on its own.
+func Serve(ctx context.Context, serverURL, agentID, token, dockerAddr string, insecure bool) error {
 	u, err := url.Parse(serverURL)
 	if err != nil {
 		return fmt.Errorf("server url: %w", err)
@@ -64,7 +71,7 @@ func Serve(ctx context.Context, serverURL, agentID, dockerAddr string, insecure 
 		return err
 	}
 	path := "/api/v1/agent/connect?agent_id=" + url.QueryEscape(agentID)
-	ready, err := upgrade(conn, u.Host, path)
+	ready, err := upgrade(conn, u.Host, path, map[string]string{tokenHeader: token})
 	if err != nil {
 		_ = conn.Close()
 		return err
@@ -97,7 +104,7 @@ func ServeMTLS(ctx context.Context, hubAddr string, clientCert, clientKey, caCer
 		return err
 	}
 	path := "/api/v1/agent/connect?" + node.values().Encode()
-	ready, err := upgrade(conn, hubAddr, path)
+	ready, err := upgrade(conn, hubAddr, path, nil) // mTLS: the client cert is the credential
 	if err != nil {
 		_ = conn.Close()
 		return err
@@ -126,13 +133,18 @@ func dial(ctx context.Context, useTLS bool, host string, tlsCfg *tls.Config, ins
 }
 
 // upgrade sends the HTTP upgrade request and consumes the 101 response, returning
-// a conn whose reads include any bytes the response buffer already held.
-func upgrade(conn net.Conn, hostHeader, path string) (net.Conn, error) {
-	req := fmt.Sprintf(
-		"GET %s HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: %s\r\n\r\n",
-		path, hostHeader, proto,
-	)
-	if _, err := io.WriteString(conn, req); err != nil {
+// a conn whose reads include any bytes the response buffer already held. Extra
+// headers (e.g. the enrollment token) are appended to the request.
+func upgrade(conn net.Conn, hostHeader, path string, headers map[string]string) (net.Conn, error) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: %s\r\n", path, hostHeader, proto)
+	for k, v := range headers {
+		if v != "" {
+			fmt.Fprintf(&b, "%s: %s\r\n", k, v)
+		}
+	}
+	b.WriteString("\r\n")
+	if _, err := io.WriteString(conn, b.String()); err != nil {
 		return nil, fmt.Errorf("send upgrade: %w", err)
 	}
 	br := bufio.NewReader(conn)
