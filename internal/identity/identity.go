@@ -47,8 +47,12 @@ func Detect(ctx context.Context, dockerHost string) (NodeIdentity, error) {
 		NodeID:        info.Swarm.NodeID,
 		Hostname:      info.Name,
 		EngineVersion: info.ServerVersion,
-		SwarmID:       info.Swarm.Cluster.ID,
 		IsManager:     info.Swarm.ControlAvailable, // only managers expose the control API
+	}
+	// Swarm.Cluster carries the cluster id but is populated only on managers;
+	// workers report a nil ClusterInfo, so guard before dereferencing it.
+	if info.Swarm.Cluster != nil {
+		id.SwarmID = info.Swarm.Cluster.ID
 	}
 	id.Role = "worker"
 	if id.IsManager {
