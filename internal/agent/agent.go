@@ -41,7 +41,7 @@ func Run(ctx context.Context, cfg config.Config, ident identity.NodeIdentity, sr
 	}
 
 	// Reverse tunnel (data plane): reconnects with capped backoff until ctx ends.
-	go serveTunnel(ctx, cfg, agentID)
+	go serveTunnel(ctx, cfg, agentID, toNodeQuery(ident))
 
 	ticker := time.NewTicker(cfg.Heartbeat)
 	defer ticker.Stop()
@@ -85,27 +85,22 @@ func register(ctx context.Context, cfg config.Config, node transport.NodeInfo, s
 }
 
 // serveTunnel keeps the token-mode reverse tunnel up, reconnecting with backoff.
-// The enrollment token authenticates the tunnel (the agent id alone is public).
-func serveTunnel(ctx context.Context, cfg config.Config, agentID string) {
+// The enrollment token authenticates the tunnel (the agent id alone is public);
+// the node identity is advertised on the URL so the hub keys this tunnel by node
+// (a global agent has one tunnel per node — without it they collide on an empty
+// id and evict each other).
+func serveTunnel(ctx context.Context, cfg config.Config, agentID string, node tunnel.NodeQuery) {
 	reconnect(ctx, func() error {
-		return tunnel.Serve(ctx, cfg.ServerURL, agentID, cfg.EnrollToken, cfg.DockerHost, cfg.InsecureSkipVerify)
+		return tunnel.Serve(ctx, cfg.ServerURL, agentID, cfg.EnrollToken, cfg.DockerHost, node, cfg.InsecureSkipVerify)
 	})
 }
 
 // serveMTLSTunnel keeps the mutual-TLS tunnel up, reconnecting with backoff.
 func serveMTLSTunnel(ctx context.Context, cfg config.Config, ident identity.NodeIdentity) {
-	node := tunnel.NodeQuery{
-		NodeID:        ident.NodeID,
-		Hostname:      ident.Hostname,
-		Role:          ident.Role,
-		IsManager:     ident.IsManager,
-		IsLeader:      ident.IsLeader,
-		EngineVersion: ident.EngineVersion,
-	}
 	reconnect(ctx, func() error {
 		return tunnel.ServeMTLS(ctx, cfg.HubAddr,
 			[]byte(cfg.ClientCert), []byte(cfg.ClientKey), []byte(cfg.CACert),
-			node, cfg.DockerHost, cfg.InsecureSkipVerify)
+			toNodeQuery(ident), cfg.DockerHost, cfg.InsecureSkipVerify)
 	})
 }
 
@@ -129,6 +124,19 @@ func reconnect(ctx context.Context, fn func() error) {
 		if backoff *= 2; backoff > maxBackoff {
 			backoff = maxBackoff
 		}
+	}
+}
+
+// toNodeQuery projects the detected node identity into the tunnel's URL query
+// form, shared by the token and mutual-TLS transports.
+func toNodeQuery(i identity.NodeIdentity) tunnel.NodeQuery {
+	return tunnel.NodeQuery{
+		NodeID:        i.NodeID,
+		Hostname:      i.Hostname,
+		Role:          i.Role,
+		IsManager:     i.IsManager,
+		IsLeader:      i.IsLeader,
+		EngineVersion: i.EngineVersion,
 	}
 }
 

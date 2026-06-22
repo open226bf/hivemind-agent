@@ -59,7 +59,7 @@ func (n NodeQuery) values() url.Values {
 // cancelled or the connection drops. The tunnel is authenticated by the agent id
 // plus the enrollment token (sent in a header): the server pushes secret/config
 // payloads over it, so the agent id — which is public — is not enough on its own.
-func Serve(ctx context.Context, serverURL, agentID, token, dockerAddr string, insecure bool) error {
+func Serve(ctx context.Context, serverURL, agentID, token, dockerAddr string, node NodeQuery, insecure bool) error {
 	u, err := url.Parse(serverURL)
 	if err != nil {
 		return fmt.Errorf("server url: %w", err)
@@ -70,7 +70,12 @@ func Serve(ctx context.Context, serverURL, agentID, token, dockerAddr string, in
 	if err != nil {
 		return err
 	}
-	path := "/api/v1/agent/connect?agent_id=" + url.QueryEscape(agentID)
+	// Advertise the node identity on the URL (alongside agent_id) so the hub keys
+	// this tunnel by node — without it every node of a global agent collides on an
+	// empty node id and the sessions evict each other.
+	q := node.values()
+	q.Set("agent_id", agentID)
+	path := "/api/v1/agent/connect?" + q.Encode()
 	ready, err := upgrade(conn, u.Host, path, map[string]string{tokenHeader: token})
 	if err != nil {
 		_ = conn.Close()
