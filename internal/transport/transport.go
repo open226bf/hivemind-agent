@@ -43,11 +43,21 @@ type RegisterResponse struct {
 	ClusterName string `json:"cluster_name"`
 }
 
+// NodeMetrics is the host-level resource usage the agent reads from /proc and
+// reports with its heartbeat — the real node usage, not just its containers.
+type NodeMetrics struct {
+	MemTotalBytes uint64  `json:"mem_total_bytes"`
+	MemUsedBytes  uint64  `json:"mem_used_bytes"`
+	CPUPercent    float64 `json:"cpu_percent"`
+	CPUCount      int     `json:"cpu_count"`
+}
+
 // HeartbeatRequest reports liveness and the current node role (which can change
-// on leader re-election / promotion).
+// on leader re-election / promotion), plus the node's host resource usage.
 type HeartbeatRequest struct {
-	AgentID string   `json:"agent_id"`
-	Node    NodeInfo `json:"node"`
+	AgentID string       `json:"agent_id"`
+	Node    NodeInfo     `json:"node"`
+	Metrics *NodeMetrics `json:"metrics,omitempty"`
 }
 
 // Server is the agent's view of the Hivemind server.
