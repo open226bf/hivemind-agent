@@ -10,6 +10,7 @@ import (
 
 	"github.com/open226bf/hivemind-agent/internal/config"
 	"github.com/open226bf/hivemind-agent/internal/identity"
+	"github.com/open226bf/hivemind-agent/internal/nodestat"
 	"github.com/open226bf/hivemind-agent/internal/transport"
 	"github.com/open226bf/hivemind-agent/internal/tunnel"
 )
@@ -43,6 +44,9 @@ func Run(ctx context.Context, cfg config.Config, ident identity.NodeIdentity, sr
 	// Reverse tunnel (data plane): reconnects with capped backoff until ctx ends.
 	go serveTunnel(ctx, cfg, agentID, toNodeQuery(ident))
 
+	// Sample host CPU/memory from /proc and report it with each heartbeat, so the
+	// server shows real node usage (not just this agent's containers).
+	sampler := nodestat.NewSampler()
 	ticker := time.NewTicker(cfg.Heartbeat)
 	defer ticker.Stop()
 	for {
@@ -51,10 +55,22 @@ func Run(ctx context.Context, cfg config.Config, ident identity.NodeIdentity, sr
 			slog.Info("agent stopping")
 			return nil
 		case <-ticker.C:
-			if err := srv.Heartbeat(ctx, transport.HeartbeatRequest{AgentID: agentID, Node: node}); err != nil {
+			hb := transport.HeartbeatRequest{AgentID: agentID, Node: node, Metrics: sampleMetrics(sampler)}
+			if err := srv.Heartbeat(ctx, hb); err != nil {
 				slog.Warn("heartbeat failed", "err", err)
 			}
 		}
+	}
+}
+
+// sampleMetrics reads the host's current usage for the heartbeat.
+func sampleMetrics(s *nodestat.Sampler) *transport.NodeMetrics {
+	st := s.Sample()
+	return &transport.NodeMetrics{
+		MemTotalBytes: st.MemTotalBytes,
+		MemUsedBytes:  st.MemUsedBytes,
+		CPUPercent:    st.CPUPercent,
+		CPUCount:      st.CPUCount,
 	}
 }
 
